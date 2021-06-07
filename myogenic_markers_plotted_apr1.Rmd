@@ -1,0 +1,593 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(biomaRt)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(enrichplot)
+library(ggpubr)
+```
+```{r}
+
+setwd("D:/OneDrive - University of Pittsburgh/Amrita_revision_nature_aging/nature_aging_reviewer_comments_april2021")
+library(readxl)
+df<-read.table('for_myogenic_heatmap.txt', sep='\t',header=TRUE, row.names = 1)
+
+```
+```{r}
+library(ggplot2)
+library(pheatmap)
+library(data.table)
+
+df <- as.data.table(df)
+# rownames(df) <- df[,1]
+# df[,1] <- NULL
+```
+
+```{r}
+# df <- df[apply(df, MARGIN = 1, FUN = function(x) sd(x) != 0),]
+setcolorder(df, c('old_sham','young_serum', 'depleted_serum'))
+pheatmap(df, cluster_cols=F,show_rownames = T,scale='row')
+
+```
+
+```{r}
+write.csv(df, file='myogenic_counts.csv', sep=',')
+
+```
+```{r}
+mod_df <- read.table(file= 'myogenic_counts_sub.csv', sep=',',header = TRUE)
+
+rownames(mod_df) <- mod_df[,1]
+mod_df[,1] <- NULL
+
+```
+```{r}
+df2 <- mod_df[,4:5]
+setcolorder(df2, c('YS', 'YDS'))
+pheatmap(df2, cluster_cols=F,show_rownames = T,scale='row')
+```
+
+```{r}
+# MYOGENIC MARKERS -WITHOUT OUTLIERS
+
+
+
+myo_df <- read_excel('myogenic_markers_CPM.xlsx',sheet = 'wo_outliers_avg')
+gene_rows <- myo_df[,1]$groupname
+myo_df <- myo_df[,-1]
+myo_df_num <- as.data.frame(apply(myo_df, 2, as.numeric))  # Convert all variable types to numeric
+row.names(myo_df_num) <-gene_rows
+
+pheatmap(log10(myo_df_num), cluster_cols=F,show_rownames = T,scale='row')
+```
+
+```{r}
+myo_df <- read_excel('myogenic_markers_CPM.xlsx',sheet = 'wo_outliers')
+#colnames(myo_df) <- myo_df[1,]
+myo_df<- myo_df[-1, ]
+gene_rows <- myo_df[,1]$groups
+myo_df <- myo_df[,-1]
+
+myo_df_num <- as.data.frame(apply(myo_df, 2, as.numeric))  # Convert all variable types to numeric
+row.names(myo_df_num) <-gene_rows
+
+sapply(myo_df_num, class)
+#myo_df_num <-row.names(myo_df)
+#setcolorder(myo_df, c('SH','YS', 'DS'))
+pheatmap(log10(myo_df_num), cluster_cols=F,show_rownames = T,scale='row')
+#breaks=seq(min(log10(myo_df_num)), max(log10(myo_df_num)), length.out = 100)
+```
+
+
+
+```{r}
+#install.packages('Seurat')
+library(Seurat)
+
+myo_genes <- c("Pax7", "Myod1", "Myog")
+DotPlot(object = df, features = myo_genes)
+
+#pbmc_small[['groups']] <- sample(x = c('g1', 'g2'), size = ncol(x = pbmc_small), replace = TRUE)
+DotPlot(object = df, features = myo_genes, split.by = 'group')
+
+```
+
+Heatmap for mitochondrial genes from all genes 
+```{r}
+countdf<-read.table('Partek_serum_muscle_21dec_Normalization_Normalized_counts.txt', sep='\t',header=TRUE, row.names = 1)
+
+```
+```{r}
+mitodf<-read.table('mito_csv.txt', sep='\t',header=TRUE)
+mitodf <-unique(mitodf)
+```
+
+```{r}
+
+NameList <-mitodf[,1] %>% as.character()
+
+mitocounts <- countdf[,colnames(countdf) %in% c(NameList,"group")] 
+```
+```{r}
+out <- as.data.frame(t(mitocounts), stringsAsFactors = FALSE)
+out[] <- lapply(out, type.convert, as.is = TRUE)
+```
+```{r}
+write.table(out, "mito_counts_raw.txt", sep="\t")
+
+mito_c_df<-read.table('mito_counts_clean.txt', sep='\t', header=TRUE, row.names = 1)
+```
+
+```{r}
+
+#mito_c_df <- as.data.table(mito_c_df)
+
+setcolorder(mito_c_df, c('SH','YS', 'DS'))
+out<-pheatmap(mito_c_df, cluster_cols=F,show_rownames = F,scale='row')
+
+mito_plot <- pheatmap(mito_c_df,scale="row", cellheight=15, cellwidth = 45)
+plot_dims <- get_plot_dims(mito_plot)
+
+png("mito_gene_names_visible_plot4may.png", height = plot_dims$height, width = plot_dims$width +10, units = "in", res = 72)
+mito_plot
+dev.off()
+
+```
+
+```{r}
+#out
+rownames(mito_c_df[out$tree_row[["order"]],])
+#out$tree_row[["order"]]
+
+plot(out$tree_row)+abline(h=1, col="red")#, lty=2, lwd=2)
+```
+```{r}
+#Cut the row (gene) dendrogram at a Euclidean distance dis-similarity of 8
+sort(cutree(out$tree_row, h=1))
+```
+
+```{r}
+gene_order <- (sort(cutree(out$tree_row, h=1)))
+#sort by player with custom order
+mito_c_df_new<- mito_c_df %>% arrange(factor(rownames(mito_c_df), levels = names(gene_order)))
+                             
+                            
+```
+```{r}
+setcolorder(mito_c_df_new, c('SH','YS', 'DS'))
+out2<-pheatmap(mito_c_df_new, cluster_cols=F,cluster_rows=F,show_rownames = T,scale='row')
+   ```
+
+# Wanted genes /EV dependent genes:
+# ```{r}
+# ev_mito_genes <- read.table('mito_EV_changing_genelist.txt')
+# ev_mito_genes <- ev_mito_genes$V1
+# 
+# ev_mito_df <- mito_c_df[rownames(mito_c_df) %in% c(ev_mito_genes,"group"),] 
+# 
+# setcolorder(ev_mito_df, c('SH','YS', 'DS'))
+# evmitoout<-pheatmap(ev_mito_df, cluster_cols=F,cluster_rows=T,show_rownames = F
+#                  ,scale='row',color=colorRampPalette(c("#0bb121", 'white', "#CF2A13"))(10))
+
+``` 
+```{r}
+ev_mito_df 
+1 inc and then steady
+
+
+13, 11, 3, 4, 8, 7
+
+6, 9    (increasing steadily)
+
+2, 10 (steadily decreasing)
+
+5 (Steady and then increase)
+
+12 (steady and then decrease)
+
+
+```
+
+```{r}
+mito_c_df_new$cluster <- gene_order
+write.table(mito_c_df_new, "mito_clusters_values2.txt", sep="\t")
+
+setcolorder(mito_c_df_new, c('SH','YS', 'DS'))
+my_plot <- pheatmap(mito_c_df_new,scale="row", cluster_cols=F,cellheight=15, cellwidth = 45)
+plot_dims <- get_plot_dims(my_plot)
+
+png("mito_gene_names_visible_plot5may.png", height = plot_dims$height, width = plot_dims$width, units = "in", res = 72)
+my_plot
+dev.off()
+
+ev2_wanted_genes <- mito_c_df_new %>% filter(cluster %in% c('3', '4', '7', '8','11', '13'))
+
+ev2_3cols <- subset(ev2_wanted_genes, select= -c(cluster))
+setcolorder(ev2_3cols,c('SH','YS', 'DS'))
+out2<-pheatmap(ev2_3cols, cluster_cols=F,cluster_rows=,show_rownames = F,scale='row')
+```
+
+```{r}
+#out
+rownames(ev2_3cols[out2$tree_row[["order"]],])
+plot(out2$tree_row)+abline(h=2.5, col="red")#, lty=2, lwd=2)
+
+sort(cutree(out2$tree_row, h=2.5))
+
+gene_order2 <- (sort(cutree(out2$tree_row, h=2.5)))
+
+write.table(gene_order2, 'up_and_down_mito_genes.txt')
+#sort by player with custom order
+mito_c_df_new<- mito_c_df %>% arrange(factor(rownames(ev2_3cols), levels = names(gene_order2)))
+```
+```{r}
+
+```
+
+```{r}
+library(clusterProfiler)
+library(org.Mm.eg.db)
+
+library(enrichplot)
+library(ggpubr)
+```
+```{r}
+wanted_genes <- mito_c_df_new %>% filter(cluster %in% c('3', '4','6', '7', '8'))
+```
+
+```{r}
+wanted_trend_go <- enrichGO(gene= rownames(wanted_genes),
+               keyType       = 'SYMBOL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+               #readable      = TRUE,
+               pAdjustMethod = "BH")
+
+wanted_trend_go2 <- gofilter(wanted_trend_go, level = 2
+                 )
+wanted_trend_go3 <- gofilter(wanted_trend_go, level = 3
+                 )
+wanted_trend_go4 <- gofilter(wanted_trend_go, level = 4
+                 )
+```
+```{r}
+dotplot(wanted_trend_go, showCategory=25)
+
+dotplot(wanted_trend_go2, showCategory=25)
+
+dotplot(wanted_trend_go3, showCategory=25)
+
+dotplot(wanted_trend_go4,  showCategory=25)
+```
+```{r}
+unwanted_genes <- mito_c_df_new %>% filter(cluster %in% c('1', '2','5'))
+unwanted_trend_go <- enrichGO(gene= rownames(unwanted_genes),
+               keyType       = 'SYMBOL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+               #readable      = TRUE,
+               pAdjustMethod = "BH")
+
+unwanted_trend_go3 <- gofilter(unwanted_trend_go, level = 3
+                 )
+unwanted_trend_go4 <- gofilter(unwanted_trend_go, level = 4
+                 )
+dotplot(unwanted_trend_go3, showCategory=25)
+
+dotplot(unwanted_trend_go4, showCategory=25)
+```
+Genes associated with 'electron transport chain'
+```{r}
+library("readxl")
+etcdf<-read_excel('MGImarkerQuery_20210415_ETC.xlsx')
+etcgenes <-etcdf$Symbol
+
+
+#NameList <-etcdf[,1] %>% as.character()
+
+etccounts <- countdf[,colnames(countdf) %in% c(etcgenes,"group")] 
+```
+```{r}
+out <- as.data.frame(t(etccounts), stringsAsFactors = FALSE)
+out[] <- lapply(out, type.convert, as.is = TRUE)
+write.table(out, "etc_counts_raw.txt", sep="\t")
+
+etc_c_df<-read_excel('etc_clean_counts.xlsx')
+
+etc_c_df <- as.data.frame (etc_c_df)
+rownames (etc_c_df) <- etc_c_df[,1]
+etc_c_df <- etc_c_df[,-1]
+```
+```{r}
+setcolorder(etc_c_df, c('SH','YS', 'DS'))
+etcout<-pheatmap(etc_c_df, cluster_cols=F,show_rownames = T
+                 ,scale='row', cellheight=15, cellwidth = 30)
+
+get_plot_dims <- function(heat_map)
+{
+  plot_height <- sum(sapply(heat_map$gtable$heights, grid::convertHeight, "in"))
+  plot_width  <- sum(sapply(heat_map$gtable$widths, grid::convertWidth, "in"))
+  return(list(height = plot_height, width = plot_width))
+}
+
+my_plot <- pheatmap(etc_c_df,scale="row", cellheight=15, cellwidth = 45)
+plot_dims <- get_plot_dims(my_plot)
+
+png("etc_gene_names_visible_plot4may.png", height = plot_dims$height, width = plot_dims$width, units = "in", res = 72)
+my_plot
+dev.off()
+```
+```{r}
+#out
+rownames(etc_c_df[etcout$tree_row[["order"]],])
+#out$tree_row[["order"]]
+
+plot(etcout$tree_row)+abline(h=2.5, col="red")#, lty=2, lwd=2)
+
+etcgene_order <- (sort(cutree(etcout$tree_row, h=2.5)))
+#sort by player with custom order
+etc_c_df_new<- etc_c_df %>% arrange(factor(rownames(etc_c_df), levels = names(etcgene_order)))
+
+setcolorder(etc_c_df_new, c('SH','YS', 'DS'))
+etcout2<-pheatmap(etc_c_df_new, cluster_cols=F,cluster_rows=T,show_rownames = T,scale='row')
+
+etc_c_df_new$cluster <- etcgene_order
+write.table(etc_c_df_new, "etc_clusters_values.txt", sep="\t")
+```
+
+Scatterplot instead
+```{r}
+plot(log2(etc_c_df$YS), log2(etc_c_df$SH), main="Scatterplot YS vs SH",
+   xlab="log2(YS CPM)", ylab="log2(Sham CPM)", pch=19)
+```
+```{r}
+library(dplyr)
+library(tidyverse)
+
+ys_sh_plot <- ggplot(etc_c_df, aes(x = log2(YS), y = log2(SH))) +
+    geom_point()
+
+ys_sh_plot + geom_abline(intercept = 0, slope = 1) + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+```{r}
+ys_ds_plot <- ggplot(etc_c_df, aes(x = log2(YS), y = log2(DS)), color = ifelse( reads < 110, "Fail", "Pass")) +
+    geom_point() + scale_color_manual(name="QC", values = c("red","darkgreen"))+
+
+ys_ds_plot + geom_abline(intercept = 0, slope = 1) + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+Cardiolipin select genes heatmap 
+```{r}
+clp_list<-read.table('cardiolipin_select_genes27april.txt', sep='\t')
+
+clpList <-clp_list[,1] %>% as.character()
+
+clpcounts <- countdf[,colnames(countdf) %in% c(clpList,"group")] 
+
+
+outclp <- as.data.frame(t(clpcounts), stringsAsFactors = FALSE)
+outclp[] <- lapply(outclp, type.convert, as.is = TRUE)
+write.table(outclp, "clp_counts_raw.txt", sep="\t")
+
+clp_c_df<-read_excel('clp_clean_counts.xlsx')
+
+clp_c_df <- as.data.frame (clp_c_df)
+rownames (clp_c_df) <- clp_c_df[,1]
+clp_c_df <- clp_c_df[,-1]
+
+
+setcolorder(clp_c_df, c('SH','YS', 'DS'))
+clpout<-pheatmap(clp_c_df, cluster_cols=F,show_rownames = T,scale='row')
+
+```
+
+```{r}
+#out
+rownames(clp_c_df[clpout$tree_row[["order"]],])
+#out$tree_row[["order"]]
+
+plot(clpout$tree_row)+abline(h=1.0, col="red")#, lty=2, lwd=2)
+
+clpgene_order <- (sort(cutree(clpout$tree_row, h=1)))
+#sort by player with custom order
+clp_c_df_new<- clp_c_df %>% arrange(factor(rownames(clp_c_df), levels = names(clpgene_order)))
+
+setcolorder(clp_c_df_new, c('SH','YS', 'DS'))
+clpout2<-pheatmap(clp_c_df_new, cluster_cols=F,cluster_rows=T,show_rownames = T,scale='row')
+
+clp_c_df_new$cluster <- clpgene_order
+write.table(clp_c_df_new, "clp_clusters_values.txt", sep="\t")
+```
+
+Calcineurin/NFAT genes
+```{r}
+df_cal<-read_excel('MGImarkerQuery_20210428_calcineurinNFAT.xlsx')
+
+cal_list<-df_cal$Symbol
+calList <-cal_list %>% as.character()
+
+calcounts <- countdf[,colnames(countdf) %in% c(calList,"group")] 
+
+
+outcal <- as.data.frame(t(calcounts), stringsAsFactors = FALSE)
+outcal[] <- lapply(outcal, type.convert, as.is = TRUE)
+write.table(outcal, "cal_counts_raw.txt", sep="\t")
+# go out of R and take average (could write a function later)
+cal_c_df<-read_excel('cal_clean_counts.xlsx')
+
+cal_c_df <- as.data.frame (cal_c_df)
+rownames (cal_c_df) <- cal_c_df[,1]
+cal_c_df <- cal_c_df[,-1]
+
+
+setcolorder(cal_c_df, c('SH','YS', 'DS'))
+
+png(filename="calcineurin_heatmap.png", width=1800, height=2500, res=300)
+pheatmap(cal_c_df, cluster_cols=F,show_rownames = T,scale='row', cellheight=10)
+dev.off()
+```
+
+FGF genes - 109 genes
+```{r}
+df_fgf<-read.table('fgf_genelist.txt', sep='\t')
+
+fgf_list<-df_fgf$V1
+fgfList <-fgf_list %>% as.character()
+fgfcounts <- countdf[,colnames(countdf) %in% c(fgfList,"group")]
+
+outfgf <- as.data.frame(t(fgfcounts), stringsAsFactors = FALSE)
+outfgf[] <- lapply(outfgf, type.convert, as.is = TRUE)
+write.table(outfgf, "fgf_counts_raw.txt", sep="\t")
+# go out of R and take average (could write a function later)
+fgf_c_df<-read_excel('fgf_clean_counts.xlsx')
+
+fgf_c_df <- as.data.frame (fgf_c_df)
+rownames (fgf_c_df) <- fgf_c_df[,1]
+fgf_c_df <- fgf_c_df[,-1]
+
+setcolorder(cal_c_df, c('SH','YS', 'DS'))
+
+png(filename="fgf_heatmap.png", width=1800, height=2500, res=180)
+fgfout<- pheatmap(fgf_c_df, cluster_cols=F,show_rownames = T,scale='row', cellheight=10)
+dev.off()
+
+#out
+rownames(fgf_c_df[fgfout$tree_row[["order"]],])
+#out$tree_row[["order"]]
+
+plot(fgfout$tree_row)+abline(h=2, col="red")#, lty=2, lwd=2)
+
+fgfgene_order <- (sort(cutree(fgfout$tree_row, h=2)))
+#sort by player with custom order
+fgf_c_df_new<- fgf_c_df %>% arrange(factor(rownames(fgf_c_df), levels = names(fgfgene_order)))
+
+setcolorder(fgf_c_df_new, c('SH','YS', 'DS'))
+fgfout2<-pheatmap(fgf_c_df, cluster_cols=F,cluster_rows=T,show_rownames = T,scale='row')
+
+fgf_c_df_new$cluster <- fgfgene_order
+write.table(fgf_c_df_new, "fgf_clusters_values.txt", sep="\t")
+
+```
+mito genes PCA
+```{r}
+#install.packages("factoextra")
+#install.packages('ggfortify')
+library("factoextra")
+library(ggfortify)
+
+mito.genes <- mitocounts[, 2:1792]
+head(mito.genes[, 1:6])
+```
+
+```{r}
+res.pca <- prcomp(mito.genes, scale = TRUE)
+
+autoplot(res.pca, data = mitocounts, colour = 'group', size=4, frame = TRUE, frame.colour = 'group')
+# fviz_pca_ind(res.pca,
+#              col.ind = "cos2", # Color by the quality of representation
+#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#              repel = TRUE     # Avoid text overlapping
+#              )
+
+res.pca$x
+```
+```{r}
+evmito2.genes<- evmito2.genes[-c(1,12),]
+res.pca <- prcomp(evmito2.genes, scale = TRUE)
+
+mitocounts_outliers_removed <- mitocounts[-c(1,12),]
+autoplot(res.pca, data = mitocounts_outliers_removed, colour = 'group', size=4, frame = TRUE, frame.colour = 'group')
+
+```
+
+```{r}
+evmito.genes <- mitocounts[, ev_mito_genes]
+head(evmito.genes[, 1:6])
+
+res.pca <- prcomp(evmito.genes, scale = TRUE)
+fviz_pca_ind(res.pca,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+```
+```{r}
+# pca<-fviz_pca_var(res.pca,col.var = "group",
+#              #col.ind = "cos2", # Color by the quality of representation
+#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#              repel = TRUE     # Avoid text overlapping
+#              )
+
+evmito2.genes <- mitocounts[, rownames(ev2_3cols)]
+head(evmito2.genes[, 1:6])
+
+#evmito2.genes<- evmito2.genes[-c(1,12),]
+
+res.pca <- prcomp(evmito2.genes, scale = TRUE)
+
+pca <- as.data.frame(res.pca$rotation)
+
+pca_abs <- pca
+pca_abs$PC1 <- abs(pca_abs$PC1)
+
+pca_abs1 <- arrange(pca_abs, desc(PC1))
+interest_abs1 <- rownames(pca_abs1[1:25,])
+
+#run only once
+ensembl = useMart( "ENSEMBL_MART_ENSEMBL", dataset = "mmusculus_gene_ensembl")
+
+genes_abs1 <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),
+                     filters = "mgi_symbol",
+                     values = interest_abs1,
+                     mart = ensembl )
+
+abs_go1 <- enrichGO(gene= genes_abs1$ensembl_gene_id,
+               keyType       = 'ENSEMBL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+               readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+dotplot(abs_go1) + ggtitle("PC1 Absolute GO Terms")
+
+```
+```{r}
+pca_abs$PC2 <- abs(pca_abs$PC2)
+
+pca_abs2 <- arrange(pca_abs, desc(PC2))
+interest_abs2 <- rownames(pca_abs2[1:25,])
+
+#ensembl = useMart( "ENSEMBL_MART_ENSEMBL", dataset = "mmusculus_gene_ensembl")
+
+genes_abs2 <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),
+                     filters = "mgi_symbol",
+                     values = interest_abs2,
+                     mart = ensembl )
+
+abs_go2 <- enrichGO(gene= genes_abs2$ensembl_gene_id,
+               keyType       = 'ENSEMBL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+               readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+dotplot(abs_go2) + ggtitle("PC2 Absolute GO Terms")
+```
+```{r}
+abs_go12 <- enrichGO(gene=c(genes_abs1$ensembl_gene_id,genes_abs2$ensembl_gene_id),keyType       = 'ENSEMBL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+               readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+dotplot(abs_go12) + ggtitle("PC1 and PC2 Absolute GO Terms")
+```
+
+

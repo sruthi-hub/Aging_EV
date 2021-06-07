@@ -1,0 +1,12 @@
+	condition
+ODS3	Depleted young serum
+OSH2	Sham
+ODS4	Depleted young serum
+OYS1	Young serum
+OSH6	Sham
+ODS2	Depleted young serum
+OSH4	Sham
+OSH3	Sham
+OYS4	Young serum
+OYS2	Young serum
+OYS3	Young serum

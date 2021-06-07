@@ -1,0 +1,701 @@
+---
+title: "DeSeq2 for Nature Aging paper - serum injection RNA seq"
+output: html_notebook
+---
+
+Following DeSeq2 tutorial:
+http://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#countmat
+```{r}
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("pasilla")
+
+library(tidyverse)
+```
+
+```{r}
+setwd("D:/OneDrive - University of Pittsburgh/Amrita_revision_nature_aging/nature_aging_reviewer_comments_april2021")
+
+```
+
+# deseq2 with all samples
+```{r}
+# took unnormalized counts from 'gene counts' node from Partek. It still seems to have decimal values although I did no normalization. Have to double-check. For now, I rounded the data so it is integers.
+
+cts <- as.matrix(read.csv("unnormalized_counts_Amrita.txt",sep="\t"))
+
+coldata <-  as.data.frame(read.csv("annotation_file.txt",sep="\t" ,row.names = 1))
+#coldata <- coldata[,c("condition")]
+
+coldata$condition <- factor(coldata$condition)
+
+all(rownames(coldata) == colnames(cts)) #should get true
+
+
+```
+```{r}
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("DESeq2")
+# 
+# install.packages('matrixStats')
+# install.packages('rlang')
+```
+
+
+```{r}
+
+library("DESeq2")
+dds <- DESeqDataSetFromMatrix(countData = round(cts),
+                              colData = coldata,
+                              design = ~ condition)
+dds
+
+```
+```{r}
+
+# Set reference control group
+dds$condition <- relevel(dds$condition, ref = "SH")
+nrow(dds)
+
+
+# Pre-filtering
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+nrow(dds)
+
+```
+
+```{r}
+dds <- DESeq(dds)
+res <- results(dds)
+res
+```
+
+```{r}
+resOrdered <- res[order(res$pvalue),]
+summary(res)
+```
+```{r}
+res2 <- results(dds, alpha=0.2)
+summary(res2)
+```
+
+```{r}
+plotMA(res, ylim=c(-2,2))
+```
+
+PCA plot with Rlog transformation
+```{r}
+esf_dds <- estimateSizeFactors(dds)
+
+rlog_dds <- rlog(esf_dds, blind = TRUE)
+
+pc_serum <- prcomp(t(assay(rlog_dds)))
+
+```
+```{r}
+library(ggplot2)
+```
+```{r}
+pc_serum_x <- (pc_serum$x)
+
+pc_serum_vars<- as.data.frame(pc_serum$x)
+
+pc_serum_vars$condition <- factor(coldata$condition)
+
+summary(pc_serum)
+```
+
+```{r}
+serum_pca <- ggplot(data = pc_serum_vars, aes(x = PC1, y  = PC2, color = condition)) +
+  
+      geom_hline(yintercept = 0, lty = 2) +
+  
+      geom_vline(xintercept = 0, lty = 2) +
+  
+      geom_point(alpha = 2, size = 4)  + 
+
+      xlab("PC 1 (49.41%)") + 
+      
+      ylab("PC 2 (22.33%)") +   theme_bw() +theme(
+        legend.title = element_blank(),
+        legend.text = element_text(size = 12)) #+ scale_colour_discrete(breaks=c("HHH","WWW","OOO"), labels = c('HET', 'WT', 'Old' ))
+
+```
+
+```{r}
+serum_pca +ggtitle("PCA with RLD transformation")
+
+```
+```{r}
+apply(pc_serum_x, 2, function(x) which( abs(x - mean(x)) > (3 * sd(x)) ))
+```
+
+
+
+PCA plot with vst transformation
+```{r}
+vst_dds <- vst(esf_dds, blind = TRUE)
+
+pc_serum_vst <- prcomp(t(assay(vst_dds)))
+
+pc_serum_vars_vst<- as.data.frame(pc_serum_vst$x)
+
+pc_serum_vars_vst$condition <- factor(coldata$condition)
+
+summary(pc_serum_vst)
+
+serum_pca_vst <- ggplot(data = pc_serum_vars_vst, aes(x = PC1, y  = PC2, color = condition)) +
+  
+      geom_hline(yintercept = 0, lty = 2) +
+  
+      geom_vline(xintercept = 0, lty = 2) +
+  
+      geom_point(alpha = 2, size = 4)  + 
+
+      xlab("PC 1 (62.3%)") + 
+      
+      ylab("PC 2 (11.24%)") +   theme_bw() +theme(
+        legend.title = element_blank(),
+        legend.text = element_text(size = 12))+ggtitle("PCA with VST transformation")
+
+```
+```{r}
+serum_pca_vst
+```
+MA Plot
+```{r}
+DGE_results_DSvsSH <- results(dds, alpha = 0.1, contrast = c("condition", "DS", "SH" ) )
+DGE_results_DSvsSH <- na.omit(DGE_results_DSvsSH)
+
+DGE_results_YSvsSH <- results(dds, alpha = 0.1, contrast = c("condition", "YS", "SH" ) )
+DGE_results_YSvsSH <- na.omit(DGE_results_YSvsSH)
+
+DGE_results_DSvsYS <- results(dds, alpha = 0.1, contrast = c("condition", "DS", "YS" ) )
+DGE_results_DSvsYS <- na.omit(DGE_results_DSvsYS)
+
+DGE_results_DSvsYS.1 <- results(dds_new, alpha = 0.1, contrast = c("condition", "DS", "YS" ) )
+DGE_results_DSvsYS.1 <- na.omit(DGE_results_DSvsYS.1)
+
+```
+```{r}
+par(mfrow=c(1,2))
+plotMA(DGE_results_DSvsSH, alpha = 0.1 , main = "DS vs SH", xlab = "Mean Counts",ylab = "Log Fold Change" )
+plotMA(DGE_results_YSvsSH, alpha = 0.1 , main = "YS vs SH", xlab = "Mean Counts", ylab = "Log Fold Change")
+```
+
+```{r}
+summary(DGE_results_DSvsSH)
+```
+
+```{r}
+summary(DGE_results_YSvsSH)
+```
+```{r}
+
+summary(DGE_results_DSvsYS.1)
+
+```
+
+GO Terms
+```{r}
+library(clusterProfiler)
+library(org.Mm.eg.db)
+
+library(enrichplot)
+library(ggpubr)
+```
+```{r}
+DSvsSH_go <- enrichGO(gene= DGE_results_DSvsSH$ensembl_gene_id,
+               keyType       = 'ENSEMBL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+               readable      = TRUE,
+               pAdjustMethod = "BH"
+               
+               )
+```
+```{r}
+resOrdered<-DGE_results_DSvsSH[order(DGE_results_DSvsSH$pvalue),]
+
+resOrderedDF <- as.data.frame(resOrdered)[1:100, ]
+write.csv(resOrderedDF, file = "results_DSvsSH_point1.csv")
+```
+
+# Removing outliers - OYS5, ODS5 - trying downstream analysis after removal
+```{r}
+# took unnormalized counts from 'gene counts' node from Partek. It still seems to have decimal values although I did no normalization. Have to double-check. For now, I rounded the data so it is integers.
+
+# removing columns from unnormalized matrix
+
+cts <- as.matrix(read.csv("unnormalized_counts_Amrita.txt",sep="\t"))
+
+cts_new <- subset(cts, select = -c(OYS5, ODS5) )
+
+
+coldata <-  as.data.frame(read.csv("annotation_file_wo_outliers.txt",sep="\t" ,row.names = 1))
+#coldata <- coldata[,c("condition")]
+
+coldata$condition <- factor(coldata$condition)
+
+all(rownames(coldata) == colnames(cts_new)) #should get true
+```
+
+```{r}
+library("DESeq2")
+dds_new <- DESeqDataSetFromMatrix(countData = round(cts_new),
+                              colData = coldata,
+                              design = ~ condition)
+dds_new
+```
+```{r}
+
+# Set reference control group
+dds_new$condition <- relevel(dds_new$condition, ref = "Sham")
+nrow(dds_new)
+
+
+# Pre-filtering
+keep <- rowSums(counts(dds_new)) >= 10
+dds_new <- dds_new[keep,]
+nrow(dds_new)
+
+dds_new <- DESeq(dds_new)
+res_new <- results(dds_new)
+res_new
+```
+```{r}
+resOrdered <- res_new[order(res_new$pvalue),]
+summary(res_new)
+```
+```{r}
+res2 <- results(dds_new, alpha=0.2)
+summary(res2)
+```
+```{r}
+DGE_results_DSvsSH <- results(dds_new, alpha = 0.1, contrast = c("condition", "Depleted young serum", "Sham" ) )
+DGE_results_DSvsSH <- na.omit(DGE_results_DSvsSH)
+
+DGE_results_YSvsSH <- results(dds_new, alpha = 0.1, contrast = c("condition", "Young serum", "Sham" ) )
+DGE_results_YSvsSH <- na.omit(DGE_results_YSvsSH)
+
+DGE_results_DSvsYS <- results(dds_new, alpha = 0.1, contrast = c("condition", "Depleted young serum", "Young serum" ) )
+DGE_results_DSvsYS <- na.omit(DGE_results_DSvsYS)
+
+DGE_results_YSvsDS <- results(dds_new, alpha = 0.1, contrast = c("condition", "Young serum", "Depleted young serum" ) )
+DGE_results_YSvsDS <- na.omit(DGE_results_YSvsDS)
+```
+```{r}
+par(mfrow=c(1,2))
+plotMA(DGE_results_DSvsSH, alpha = 0.1 , main = "DS vs SH", xlab = "Mean Counts",ylab = "Log Fold Change" )
+plotMA(DGE_results_YSvsSH, alpha = 0.1 , main = "YS vs SH", xlab = "Mean Counts", ylab = "Log Fold Change")
+```
+```{r}
+summary(DGE_results_DSvsSH)
+
+summary(DGE_results_YSvsSH)
+
+summary(DGE_results_DSvsYS)
+
+summary(DGE_results_YSvsDS)
+
+
+DGE_results_YSvsSH_lfc_one <- results(dds_new, alpha = 0.1, contrast = c("condition", "Young serum", "Sham" ), lfcThreshold=0.1)
+summary(DGE_results_YSvsSH_lfc_one)
+plotMA(DGE_results_YSvsSH_lfc_one, alpha = 0.1 ,  main = "YS vs SH", xlab = "Mean Counts",ylab = "Log Fold Change" )
+
+
+
+DGE_results_DSvsSH_lfc_one <- results(dds_new, alpha = 0.1, contrast = c("condition", "Depleted young serum", "Sham" ), lfcThreshold=0.1)
+summary(DGE_results_DSvsSH_lfc_one)
+plotMA(DGE_results_DSvsSH_lfc_one, alpha = 0.1 ,  main = "DS vs SH", xlab = "Mean Counts",ylab = "Log Fold Change" )
+
+
+DGE_results_YSvsDS_lfc_one <- results(dds_new, alpha = 0.1, contrast = c("condition", "Young serum", "Depleted young serum" ), lfcThreshold=0.1)
+summary(DGE_results_YSvsDS_lfc_one)
+plotMA(DGE_results_YSvsDS_lfc_one, alpha = 0.1 ,  main = "YS vs DS", xlab = "Mean Counts",ylab = "Log Fold Change" )
+
+```
+
+```{r}
+
+YSvsDS_0.1 <- as.data.frame(DGE_results_YSvsDS_lfc_one)
+
+YSvsDS_0.1change <- YSvsDS_0.1 %>%   filter(padj<0.1) 
+
+DSvsSH_0.1 <- as.data.frame(DGE_results_DSvsSH_lfc_one)
+
+DSvsSH_0.1up <- DSvsSH_0.1 %>%  filter(log2FoldChange>0.1)%>%  filter(padj<0.1)
+DSvsSH_0.1down <- DSvsSH_0.1 %>%  filter(log2FoldChange< -0.1)%>%  filter(padj<0.1)
+
+YSvsSH_0.1 <- as.data.frame(DGE_results_YSvsSH_lfc_one)
+
+YSvsSH_0.1up <- YSvsSH_0.1 %>%  filter(log2FoldChange>0.1)%>%  filter(padj<0.1)
+YSvsSH_0.1down <- YSvsSH_0.1 %>%  filter(log2FoldChange< -0.1)%>%  filter(padj<0.1)
+
+YSvsSH_0.1uplfc1.5 <-YSvsSH_0.1up %>%  filter(log2FoldChange> 1.5)
+
+# install.packages("xlsx") 
+# library(openxlsx)
+# myfile <- 'Deseq2_fdr_0.1_lfc_0.1.xlsx'
+# list_of_dfs <- list('DSvsSH_0.1upregulated'=DSvsSH_0.1up, 'DSvsSH_0.1downregulated'=DSvsSH_0.1down,
+#                     'YSvsSH_0.1upregulated'=YSvsSH_0.1up,
+#                     'YSvsSH_0.1downregulated'=YSvsSH_0.1down)
+# write.xlsx(list_of_dfs, row.names=TRUE,myfile)
+
+```
+
+
+```{r}
+#install.packages("VennDiagram")                           
+library(VennDiagram)venn.diagram(list("YSvsSH"=union(rownames(YSvsSH_0.1up),rownames(YSvsSH_0.1down)),"DSvsSH"=union(rownames(DSvsSH_0.1up),rownames(DSvsSH_0.1down))),fill = c("#80bfff","#ff6666"),
+             cex= 2.5,cat.cex=2.5,height=2200, width=2200,resolution = 300,cat.just=list(c(0.1,-2) , c(1.5,-2.5)),main.fontfamily ='sanserif',
+             filename = 'venn_all_and_all.png',
+             print.mode =c("raw", "percent"))
+
+
+
+onlyYSup<- setdiff(rownames(YSvsSH_0.1up),union(rownames(DSvsSH_0.1up),rownames(DSvsSH_0.1down)))
+onlyYSdown<- setdiff(rownames(YSvsSH_0.1down),union(rownames(DSvsSH_0.1up),rownames(DSvsSH_0.1down)))
+
+onlyYSupanddown <- setdiff(union(rownames(YSvsSH_0.1up),rownames(YSvsSH_0.1down)),union(rownames(DSvsSH_0.1up),rownames(DSvsSH_0.1down)))
+
+#run only once
+#ensembl = useMart( "ENSEMBL_MART_ENSEMBL", dataset = "mmusculus_gene_ensembl")
+```
+
+```{r}
+
+onlyYSupanddown_names <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),
+                     filters = "mgi_symbol",
+                     values = onlyYSupanddown,
+                     mart = ensembl )
+
+YSvsSH_go_new_upanddown <- enrichGO(gene= onlyYSupanddown_names$mgi_symbol,
+               keyType       = 'SYMBOL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+               #readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+dotplot(YSvsSH_go_new_upanddown)+ ggtitle("YS only up and down GO Terms")
+
+write.table(onlyYSupanddown_names, 'YSonly_upand downGeneNames.txt',  sep="\t")
+write.table(YSvsSH_go_new_upanddown, 'YSonly_upand downGOterms.txt',  sep="\t")
+
+```
+
+```{r}
+onlyYSup_names <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),
+                     filters = "mgi_symbol",
+                     values = onlyYSup,
+                     mart = ensembl )
+
+write.table(onlyYSup_names, 'YSup_subtract_DSall.txt',  sep="\t")
+
+YSvsSH_go_new_up <- enrichGO(gene= onlyYSup_names$mgi_symbol,
+               keyType       = 'SYMBOL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+               #readable      = TRUE,
+               pAdjustMethod = "BH"
+               
+               )
+
+dotplot(YSvsSH_go_new_up) + ggtitle("up GO Terms")
+YSvsSH_go_new_up4 <- gofilter(YSvsSH_go_new_up, level=4)
+
+dotplot(YSvsSH_go_new_up4) + ggtitle("up GO Terms level 4")
+
+onlyYSdown_names <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),
+                     filters = "mgi_symbol",
+                     values = onlyYSdown,
+                     mart = ensembl )
+
+YSvsSH_go_new <- enrichGO(gene= onlyYSdown_names$mgi_symbol,
+               keyType       = 'SYMBOL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+#               readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+YSvsSH_go_new@result <- jamba::renameColumn(YSvsSH_go_new@result,
+   from="description",
+   to="Description")
+
+dotplot(YSvsSH_go_new) + ggtitle("down GO Terms")
+
+
+write.table(onlyYSdown_names, 'YSdown_subtract_DSall.txt',  sep="\t")
+
+```
+
+```{r}
+onlyDSup<- setdiff(rownames(DSvsSH_0.1up),union(rownames(YSvsSH_0.1up),rownames(YSvsSH_0.1down)))
+onlyDSdown<- setdiff(rownames(DSvsSH_0.1down),union(rownames(YSvsSH_0.1up),rownames(YSvsSH_0.1down)))
+
+onlyDSupanddown <- setdiff(union(rownames(DSvsSH_0.1up),rownames(DSvsSH_0.1down)),union(rownames(YSvsSH_0.1up),rownames(YSvsSH_0.1down)))
+
+onlyDSdown_names <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),
+                     filters = "mgi_symbol",
+                     values = onlyDSdown,
+                     mart = ensembl )
+
+write.table(as.data.frame(onlyDSupanddown),'onlyDSupanddown_genes.txt',  sep="\t")
+write.table(as.data.frame(onlyDSup),'onlyDSup_genes.txt',  sep="\t")
+write.table(as.data.frame(onlyDSdown),'onlyDSdown_genes.txt',  sep="\t")
+
+onlyDSdown_go <- enrichGO(gene= onlyDSdown_names$mgi_symbol,
+               keyType       = 'SYMBOL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+#               readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+dotplot(onlyDSdown_go,font.size=10) + ggtitle("onlyDSdown GO Terms")+ scale_y_discrete(labels=function(x) str_wrap(x, width=40))
+
+```
+
+```{r}
+
+onlyDSup_names <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),
+                     filters = "mgi_symbol",
+                     values = onlyDSup,
+                     mart = ensembl )
+
+onlyDSupanddown_names <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),filters = "mgi_symbol",
+                     values = c(onlyDSup, onlyDSdown),
+                     mart = ensembl )
+
+onlyDSupanddown_go <- enrichGO(gene= onlyDSupanddown_names$mgi_symbol,
+               keyType       = 'SYMBOL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+#               readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+
+dotplot(onlyDSdown_go,font.size=10) + ggtitle("onlyDSupanddown GO Terms")#+ scale_y_discrete(labels=function(x) str_wrap(x, width=40))
+
+
+# top upregulated genes lfc > 1.5 : YS vs SH
+YSvsSH_0.1uplfc1.5names <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),
+                     filters = "mgi_symbol",
+                     values = rownames(YSvsSH_0.1uplfc1.5),
+                     mart = ensembl )
+
+
+
+YSvsSH_0.1uplfc1.5_go <- enrichGO(gene= YSvsSH_0.1uplfc1.5names$ensembl_gene_id,
+               keyType       = 'ENSEMBL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+               readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+write.table(YSvsSH_0.1uplfc1.5names,"YSvsSH_0.1uplfc1.5_GENENAMES.txt", sep='\t')
+
+write.table(YSvsSH_0.1uplfc1.5_go,"YSvsSH_0.1uplfc1.5_GO terms.txt",sep='\t')
+dotplot(YSvsSH_0.1uplfc1.5_go,font.size=10) + ggtitle("YSvsSH_0.1uplfc1.5 GO Terms")#+ scale_y_discrete(labels=function(x) str_wrap(x, width=20))
+```
+```{r}
+
+```
+
+
+mito genes in DE genes
+```{r}
+length(intersect(onlyYSupanddown_names$mgi_symbol, (mitodf$Symbol)))
+
+mitocounts_outliers_removed <- mitocounts[-c(1,12),]
+
+YSchangedcounts <- mitocounts_outliers_removed[,colnames(mitocounts_outliers_removed) %in% c(onlyYSupanddown_names$mgi_symbol,"group")] 
+
+outYSchanged <- as.data.frame(t(YSchangedcounts), stringsAsFactors = FALSE)
+outYSchanged[] <- lapply(outYSchanged, type.convert, as.is = TRUE)
+
+outYSchanged.with.colnames <- data.frame(outYSchanged[-1,])#, col.names=outYSchanged[1,])
+
+mitogenes_YS_names <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),
+                     filters = "mgi_symbol",
+                     values = rownames(outYSchanged.with.colnames),
+                     mart = ensembl )
+
+
+mitogenes_YS_go <- enrichGO(gene= mitogenes_YS_names$mgi_symbol,
+               keyType       = 'SYMBOL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+#               readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+
+dotplot(mitogenes_YS_go,font.size=10) + ggtitle("mitogenes_YS GO Terms")
+
+```
+
+
+```{r}
+
+
+
+
+out <- as.data.frame(outYSchanged.with.colnames, stringsAsFactors = FALSE)
+out[] <- lapply(out, type.convert, as.is = TRUE)
+
+breaksList = seq(-1,0,0.4)#, by = 0.01)
+
+library(RColorBrewer)
+setcolorder(out, c('OSH2','OSH3','OSH4','OSH6','OYS1','OYS2','OYS3','OYS4', 'ODS2','ODS3','ODS4'))
+pheatmap(out,cluster_cols=F,show_rownames = T,scale='row',color = colorRampPalette(rev(brewer.pal(n = 7, name = "RdYlBu")))(length(breaksList)),
+         breaks = breaksList)
+
+orderout
+   
+```
+
+```{r}
+esf_dds <- estimateSizeFactors(dds_new)
+
+rlog_dds <- rlog(esf_dds, blind = TRUE)
+
+pc_serum <- prcomp(t(assay(rlog_dds)), scale=TRUE)
+
+pc_serum_vars<- as.data.frame(pc_serum$x)
+
+pc_serum_vars$condition <- factor(coldata$condition)
+
+summary(pc_serum)
+```
+```{r}
+library(ggfortify)
+
+serum_pca <- ggplot(data = pc_serum_vars, aes(x = PC1, y  = PC2, color = condition)) +
+  
+      geom_hline(yintercept = 0, lty = 5) +
+  
+      geom_vline(xintercept = 0, lty = 2) +
+  
+      geom_point(alpha = 2, size = 4)  + 
+
+      xlab("PC 1 (21.11%)") + 
+      
+      ylab("PC 2 (16.24%)") +  #xlim(-60, 60) + ylim(-40, 40)+ 
+  theme_bw() +theme(
+        legend.title = element_blank(),
+        legend.text = element_text(size = 12)) 
+
+serum_pca
+
+rem_countdf<-countdf[-c(1,12),]
+
+library(cluster)
+autoplot(pc_serum, data= rem_countdf, colour='group' , frame = TRUE, frame.type = 'norm')
+
+```
+```{r}
+pca <- as.data.frame(pc_serum$rotation)
+pca$PC1 <- abs(pca$PC1)
+pca <- arrange(pca, desc(PC1))
+interest_abs <- rownames(pca[1:25,])
+
+genes_abs <- getBM( attributes = c("ensembl_gene_id", "entrezgene_id", "mgi_symbol"),
+                    filters = "mgi_symbol",
+                    values = interest_abs,
+                    mart = ensembl )
+
+interest_absPC1 <- enrichGO(gene= genes_abs$mgi_symbol,
+               keyType       = 'SYMBOL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+#               readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+dotplot(interest_absPC1)
+
+PC1_level3 <- gofilter(interest_absPC1, level=5)
+
+dotplot(PC1_level3) + ggtitle("PC1 GO Terms level 5")
+
+library(rrvgo)
+simMatrix <- calculateSimMatrix(interest_absPC1$ID,
+                                orgdb="org.Mm.eg.db",
+                                ont="BP",
+                                method="Rel")
+
+scores <- setNames(-log10(interest_absPC1$p.adjust), interest_absPC1$ID)
+reducedTerms <- reduceSimMatrix(simMatrix,
+                                scores,
+                                threshold=0.3,
+                                orgdb="org.Mm.eg.db")
+
+scatterPlot(simMatrix, reducedTerms)
+
+treemapPlot(reducedTerms)
+```
+
+
+```{r}
+vst_dds <- vst(esf_dds, blind = TRUE)
+
+pc_serum_vst <- prcomp(t(assay(vst_dds)))
+
+pc_serum_vars_vst<- as.data.frame(pc_serum_vst$x)
+
+pc_serum_vars_vst$condition <- factor(coldata$condition)
+
+summary(pc_serum_vst)
+
+serum_pca_vst <- ggplot(data = pc_serum_vars_vst, aes(x = PC1, y  = PC2, color = condition)) +
+  
+      geom_hline(yintercept = 0, lty = 2) +
+  
+      geom_vline(xintercept = 0, lty = 2) +
+  
+      geom_point(alpha = 2, size = 4)  + 
+
+      xlab("PC 1 (62.3%)") + 
+      
+      ylab("PC 2 (11.24%)") +   xlim(-60, 60) + ylim(-40, 40) + theme_bw() +theme(legend.title = element_blank(),legend.text = element_text(size = 12))+ggtitle("PCA with VST transformation")
+
+serum_pca_vst
+```
+```{r}
+head(DGE_results_DSvsSH)
+```
+
+```{r}
+write.csv( as.data.frame(DGE_results_DSvsSH), file="results_DSvsSH.csv" )
+
+write.csv( as.data.frame(DGE_results_YSvsSH), file="results_YSvsSH.csv" )
+```
+
+selecting mitochondrial genes from count matrix
+```{r}
+countdf<-read.table('Partek_serum_muscle_21dec_Normalization_Normalized_counts.txt', sep='\t',header=TRUE, row.names = 1)
+
+mitodf<-read.table('mito_csv.txt', sep='\t',header=TRUE)
+mitodf <-unique(mitodf)
+
+path <- getwd()
+dge_YSvsSH_up<-read_excel('D:/OneDrive - University of Pittsburgh/Amrita_revision_nature_aging/nature_aging_reviewer_comments_april2021/meetings and data/deseq2-DEgenelist/deseq2_genelist.xlsx', sheet='up_YSvsSH')
+
+dge_YSvsSH_down<-read_excel('D:/OneDrive - University of Pittsburgh/Amrita_revision_nature_aging/nature_aging_reviewer_comments_april2021/meetings and data/deseq2-DEgenelist/deseq2_genelist.xlsx', sheet='down_YSvsSH')
+
+dge_DSvsSH_up<-read_excel('D:/OneDrive - University of Pittsburgh/Amrita_revision_nature_aging/nature_aging_reviewer_comments_april2021/meetings and data/deseq2-DEgenelist/deseq2_genelist.xlsx', sheet='down_DSvsSH')
+
+pheatmap(pc_serum_vars)
+```
+
+
+

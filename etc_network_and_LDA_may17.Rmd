@@ -1,0 +1,290 @@
+---
+title: "ETC genes network plot DEG 17may R Notebook"
+output: html_notebook
+---
+# First step: collected gene list from https://www.wikipathways.org/index.php/Pathway:WP111 in our dataset. The figure is inspired from https://www.pnas.org/content/114/32/8596/tab-figures-data (Fig 2C).
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("STRINGdb")
+```
+# For LDA, FOLLOWED:https://rpubs.com/ifn1411/LDA
+```{r}
+install.packages("MASS")
+install.packages("car")
+install.packages("caret")
+install.packages("klaR")
+install.packages("rattle.data")
+
+```
+
+```{r}
+library(MASS)
+library(car)
+```
+
+```{r}
+setwd("D:/OneDrive - University of Pittsburgh/Amrita_revision_nature_aging/nature_aging_reviewer_comments_april2021")
+
+library(STRINGdb)
+library(readxl)
+library(tidyverse)
+library(igraph)
+library("DESeq2")
+
+string_db <- STRINGdb$new( version="11", species=10090, score_threshold=200, input_directory="")
+
+```
+# Perform deseq2 on dataset excluding outliers
+```{r}
+cts <- as.matrix(read.csv("unnormalized_counts_Amrita.txt",sep="\t"))
+
+cts_new <- subset(cts, select = -c(OYS5, ODS5) )
+
+
+coldata <-  as.data.frame(read.csv("annotation_file_wo_outliers.txt",sep="\t" ,row.names = 1))
+#coldata <- coldata[,c("condition")]
+
+coldata$condition <- factor(coldata$condition)
+
+all(rownames(coldata) == colnames(cts_new)) #should get true
+
+
+dds_new <- DESeqDataSetFromMatrix(countData = round(cts_new),
+                              colData = coldata,
+                              design = ~ condition)
+dds_new
+
+# Set reference control group
+dds_new$condition <- relevel(dds_new$condition, ref = "Sham")
+nrow(dds_new)
+
+
+# Pre-filtering
+keep <- rowSums(counts(dds_new)) >= 10
+dds_new <- dds_new[keep,]
+nrow(dds_new)
+
+dds_new <- DESeq(dds_new)
+res_new <- results(dds_new)
+res_new
+```
+```{r}
+DGE_results_DSvsSH <- results(dds_new, alpha = 0.1, contrast = c("condition", "DS", "SH" ) )
+DGE_results_DSvsSH <- na.omit(DGE_results_DSvsSH)
+
+DGE_results_YSvsSH <- results(dds_new, alpha = 0.1, contrast = c("condition", "YS", "SH" ) )
+DGE_results_YSvsSH <- na.omit(DGE_results_YSvsSH)
+
+summary(DGE_results_DSvsSH)
+
+summary(DGE_results_YSvsSH)
+
+YSvsDS_0.1 <- as.data.frame(DGE_results_YSvsDS_lfc_one)
+
+YSvsDS_0.1change <- YSvsDS_0.1 %>%   filter(padj<0.1) 
+
+DSvsSH_0.1 <- as.data.frame(DGE_results_DSvsSH_lfc_one)
+
+DSvsSH_0.1up <- DSvsSH_0.1 %>%  filter(log2FoldChange>0.1)%>%  filter(padj<0.1)
+DSvsSH_0.1down <- DSvsSH_0.1 %>%  filter(log2FoldChange< -0.1)%>%  filter(padj<0.1)
+
+YSvsSH_0.1 <- as.data.frame(DGE_results_YSvsSH_lfc_one)
+
+YSvsSH_0.1up <- YSvsSH_0.1 %>%  filter(log2FoldChange>0.1)%>%  filter(padj<0.1)
+YSvsSH_0.1down <- YSvsSH_0.1 %>%  filter(log2FoldChange< -0.1)%>%  filter(padj<0.1)
+
+onlyYSup<- setdiff(rownames(YSvsSH_0.1up),union(rownames(DSvsSH_0.1up),rownames(DSvsSH_0.1down)))
+onlyYSdown<- setdiff(rownames(YSvsSH_0.1down),union(rownames(DSvsSH_0.1up),rownames(DSvsSH_0.1down)))
+
+onlyYSupanddown <- setdiff(union(rownames(YSvsSH_0.1up),rownames(YSvsSH_0.1down)),union(rownames(DSvsSH_0.1up),rownames(DSvsSH_0.1down)))
+```
+
+
+
+# get complex1 genes - intersection with DE genes YS vs Sham
+# first run deseq2 after removing outliers 
+```{r}
+complexes_cpm <-read_excel('meetings and data/ETC_complexes_genelist_17may.xlsx')
+
+comp1_genes <- as_tibble(complexes_cpm) %>%  filter(Complex == 1) %>% dplyr::select(Gene)  
+
+comp1_deg <- intersect(comp1_genes$Gene, onlyYSupanddown)
+```
+```{r}
+comp2_genes <- as_tibble(complexes_cpm) %>%  filter(Complex == 2) %>% dplyr::select(Gene)  
+
+comp2_deg <- intersect(comp2_genes$Gene, onlyYSupanddown)
+```
+```{r}
+comp3_genes <- as_tibble(complexes_cpm) %>%  filter(Complex == 3) %>% dplyr::select(Gene)  
+
+comp3_deg <- intersect(comp3_genes$Gene, onlyYSupanddown)
+```
+```{r}
+comp4_genes <- as_tibble(complexes_cpm) %>%  filter(Complex == 4) %>% dplyr::select(Gene)  
+
+comp4_deg <- intersect(comp4_genes$Gene, onlyYSupanddown)
+```
+```{r}
+comp5_genes <- as_tibble(complexes_cpm) %>%  filter(Complex == 5) %>% dplyr::select(Gene)  
+
+comp5_deg <- intersect(comp5_genes$Gene, onlyYSupanddown)
+```
+
+```{r}
+comp1_net<-read.csv('ETC_network/comp1_stringdb.tsv',sep='\t', header = TRUE)
+
+comp1_links <- data.frame(source=comp1_net$X.node1,target=comp1_net$node2)
+
+comp1_network <- graph_from_data_frame(d=comp1_links, directed=F) 
+plot(comp1_network, vertex.color="white",vertex.label.color='black')
+```
+```{r}
+comp2_net<-read.csv('ETC_network/comp2_stringdb.tsv',sep='\t', header = TRUE)
+
+comp2_links <- data.frame(source=comp2_net$X.node1,target=comp2_net$node2)
+
+comp2_network <- graph_from_data_frame(d=comp2_links, directed=F) 
+plot(comp2_network, vertex.color="white",vertex.label.color='black')
+```
+```{r}
+comp3_net<-read.csv('ETC_network/comp3_stringdb.tsv',sep='\t', header = TRUE)
+
+comp3_links <- data.frame(source=comp3_net$X.node1,target=comp3_net$node2)
+
+comp3_network <- graph_from_data_frame(d=comp3_links, directed=F) 
+plot(comp3_network, vertex.color="white",vertex.label.color='black')
+```
+```{r}
+comp4_net<-read.csv('ETC_network/comp4_stringdb.tsv',sep='\t', header = TRUE)
+
+comp4_links <- data.frame(source=comp4_net$X.node1,target=comp4_net$node2)
+
+comp4_network <- graph_from_data_frame(d=comp4_links, directed=F) 
+V(comp4_network)$color <-c('white')
+V(comp4_network)["Cox6a1"]$color <- "red"
+
+
+plot(comp4_network,vertex.label.color='black')
+
+```
+```{r}
+comp5_net<-read.csv('ETC_network/comp5_stringdb.tsv',sep='\t', header = TRUE)
+
+comp5_links <- data.frame(source=comp4_net$X.node1,target=comp4_net$node2)
+
+comp5_network <- graph_from_data_frame(d=comp5_links, directed=F) 
+plot(comp5_network, vertex.color="white",vertex.label.color='black')
+```
+
+# Representing LFC as color of nodes with only FDR<0.1 cutoff
+```{r}
+DGE_results_YSvsSHdf<-rownames_to_column(as.data.frame(DGE_results_YSvsSH), var = "rowname")
+DGE_results_DSvsSHdf<-rownames_to_column(as.data.frame(DGE_results_DSvsSH), var = "rowname")
+
+YSvsSH_0.1change <- as_tibble(DGE_results_YSvsSHdf) %>%   filter(padj<0.1)
+DSvsSH_0.1change <- as_tibble(DGE_results_DSvsSHdf) %>%   filter(padj<0.1)
+
+YSvsSH_genes <- (YSvsSH_0.1change) %>% dplyr::select(rowname)
+
+DSvsSH_genes <- (DSvsSH_0.1change) %>% dplyr::select(rowname)
+
+
+
+onlyYS_genes <- setdiff(YSvsSH_genes$rowname,DSvsSH_genes$rowname)
+
+comp1_ys <- intersect(comp1_genes$Gene, onlyYS_genes)
+comp2_ys <- intersect(comp2_genes$Gene, onlyYS_genes)
+comp3_ys <- intersect(comp3_genes$Gene, onlyYS_genes)
+comp4_ys <- intersect(comp4_genes$Gene, onlyYS_genes)
+comp5_ys <- intersect(comp5_genes$Gene, onlyYS_genes)
+
+```
+
+# Fatty acid oxidation - gene network
+```{r}
+fattyacid_df <- read_excel('meetings and data/fatty_acid_beta_oxidation_73genes.xlsx')
+
+fattyacid_allgenes <- fattyacid_df %>% dplyr::select(Symbol)
+
+fattyacid_go <- enrichGO(gene= fattyacid_allgenes$Symbol,
+               keyType       = 'SYMBOL',
+               OrgDb         = org.Mm.eg.db,
+               ont           = "BP",
+#               readable      = TRUE,
+               pAdjustMethod = "BH"
+               )
+
+dotplot(fattyacid_go) + ggtitle("verifying GO Terms")
+```
+
+#LDA data preprocessing
+# followed this:https://rpubs.com/ifn1411/LDA
+```{r}
+
+# Pre-filtering
+keep <- rowSums(counts(dds_new)) >= 10
+dds_new2 <- dds_new[keep,]
+nrow(dds_new2)
+
+esf_dds2 <- estimateSizeFactors(dds_new2)
+
+rlog_dds <- rlog(esf_dds2, blind = TRUE)
+
+pc_serum <- prcomp(t(assay(rlog_dds)), scale=TRUE, center =TRUE)
+
+pc_serum_6 <- (pc_serum$x[,1:6])
+
+pc_serum_vars<- as.data.frame(pc_serum_6)
+
+pc_serum_vars$condition <- factor(coldata$condition)
+
+summary(pc_serum)
+
+head(pc_serum_vars)
+
+# lda_df <- data.frame(t(assay(rlog_dds)))
+# lda_df$condition <- factor(coldata$condition)
+
+# options(expressions = 5e5)
+# newlda_df <- lda_df %>%
+#   dplyr::select(condition, everything())
+lda_df.lda <- lda(condition ~., data = pc_serum_vars)
+lda_df.lda
+```
+```{r}
+df.lda.values <- predict(lda_df.lda)
+df.lda.values
+
+plot(df.lda.values$x[,1], df.lda.values$x[,2])
+```
+```{r}
+df.lda.values <- predict(lda_df.lda, dimen=3, method="predictive")
+
+df.lda.values
+plot(df.lda.values$x[,1], df.lda.values$x[,2])
+```
+```{r}
+install.packages("ggalt")
+library(ggalt)
+```
+
+```{r}
+#convert to data frame 
+newdata <- data.frame(condition = factor(coldata$condition), lda = df.lda.values$x)
+library(ggplot2)
+
+
+
+tiff('LDA_2d_encircle.tiff', units="in", width=6, height=4, res=500, compression = 'lzw')
+ldaplot<- ggplot(newdata,aes(x=lda.LD1, y=lda.LD2, color = condition), size = 2.5) + geom_point(aes(x=lda.LD1, y=lda.LD2, color = condition), size = 4) +
+  geom_encircle(aes(group = condition))+
+  ylim(-4, 3)+xlim(-5,5)
+print(ldaplot)
+dev.off()
+
+```
+
+
